@@ -1,12 +1,14 @@
+
 """
 PonSSH — SSH Connection Manager
+
 Handles:
-  - Direct SSH connections
-  - Bastion / jump-host (Wallix-style) with password + TOTP 2FA
-  - SFTP through bastion
-  - Keepalive
-  - Remote / local port forwarding
-  - Shell channel with streaming output
+- Direct SSH connections
+- Bastion / jump-host (Wallix-style) with password + TOTP 2FA
+- SFTP through bastion
+- Keepalive
+- Remote / local port forwarding
+- Shell channel with streaming output
 """
 
 import threading
@@ -101,22 +103,26 @@ class PortForwardThread(threading.Thread):
         except Exception:
             pass
         finally:
-            try: sock.close()
-            except: pass
-            try: chan.close()
-            except: pass
+            try:
+                sock.close()
+            except Exception:
+                pass
+            try:
+                chan.close()
+            except Exception:
+                pass
 
 
 class SSHSession:
     """A single SSH session, potentially through a bastion host."""
 
-    def __init__(self, profile: dict, output_callback: Callable[[str], None] = None):
+    def __init__(self, profile: dict, output_callback: Callable = None):
         self.profile = profile
         self.output_cb = output_callback or (lambda x: None)
         self.bastion_client: Optional[paramiko.SSHClient] = None
         self.target_client: Optional[paramiko.SSHClient] = None
         self.shell_channel: Optional[paramiko.Channel] = None
-        self._port_forwards: list[PortForwardThread] = []
+        self._port_forwards: list = []
         self._keepalive_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._output_queue: queue.Queue = queue.Queue()
@@ -129,12 +135,10 @@ class SSHSession:
 
     def connect(self, totp_code: str = ""):
         p = self.profile
-
         if p.get("use_bastion"):
             self._connect_bastion(totp_code)
         else:
             self._connect_direct()
-
         self._connected = True
         self._start_keepalive()
         self._setup_port_forwards()
@@ -157,6 +161,7 @@ class SSHSession:
             kwargs["key_filename"] = p["key_path"]
         else:
             kwargs["password"] = p.get("password", "")
+
         client.connect(**kwargs)
         self.target_client = client
 
@@ -167,9 +172,6 @@ class SSHSession:
         # Step 1: connect to bastion
         bastion = self._make_client()
         bpass = b.get("password", "")
-        if totp_code:
-            # Some bastions expect password+OTP concatenated, others expect keyboard-interactive
-            bpass = bpass # we'll handle via auth_handler
 
         bastion.connect(
             hostname=b["host"],
@@ -184,7 +186,10 @@ class SSHSession:
         # Handle keyboard-interactive 2FA if needed
         transport = bastion.get_transport()
         if not transport.is_authenticated():
-            transport.auth_interactive(b["username"], self._kb_interactive_handler(totp_code))
+            transport.auth_interactive(
+                b["username"],
+                self._kb_interactive_handler(totp_code)
+            )
 
         self.bastion_client = bastion
 
@@ -207,6 +212,7 @@ class SSHSession:
             kwargs["key_filename"] = p["key_path"]
         else:
             kwargs["password"] = p.get("password", "")
+
         target.connect(**kwargs)
         self.target_client = target
 
@@ -216,7 +222,7 @@ class SSHSession:
             responses = []
             for prompt, echo in prompts:
                 pl = prompt.lower()
-                if "verification" in pl or "token" in pl or "code" in pl or "otp" in pl or "2fa" in pl:
+                if any(kw in pl for kw in ("verification", "token", "code", "otp", "2fa")):
                     responses.append(totp_code)
                 else:
                     responses.append("")
@@ -257,7 +263,7 @@ class SSHSession:
             self._sftp = self.target_client.open_sftp()
         return self._sftp
 
-    def sftp_list(self, path: str = ".") -> list[dict]:
+    def sftp_list(self, path: str = ".") -> list:
         sftp = self.get_sftp()
         items = []
         for attr in sftp.listdir_attr(path):
@@ -296,7 +302,9 @@ class SSHSession:
         interval = int(self.profile.get("keepalive_interval", 30))
         if interval <= 0:
             return
-        t = threading.Thread(target=self._keepalive_loop, args=(interval,), daemon=True)
+        t = threading.Thread(
+            target=self._keepalive_loop, args=(interval,), daemon=True
+        )
         t.start()
         self._keepalive_thread = t
 
@@ -358,17 +366,25 @@ class SSHSession:
         for fwd in self._port_forwards:
             fwd.stop()
         if self._sftp:
-            try: self._sftp.close()
-            except: pass
+            try:
+                self._sftp.close()
+            except Exception:
+                pass
         if self.shell_channel:
-            try: self.shell_channel.close()
-            except: pass
+            try:
+                self.shell_channel.close()
+            except Exception:
+                pass
         if self.target_client:
-            try: self.target_client.close()
-            except: pass
+            try:
+                self.target_client.close()
+            except Exception:
+                pass
         if self.bastion_client:
-            try: self.bastion_client.close()
-            except: pass
+            try:
+                self.bastion_client.close()
+            except Exception:
+                pass
         self._connected = False
 
     @property
