@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PonSSH</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet"/>
+<!-- xterm.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.3.0/lib/xterm.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.3.0/css/xterm.css" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.js"></script>
+<style>
+/* ===== RESET & ROOT ===== */
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg0:#020609;
+  --bg1:#060d14;
+  --bg2:#0a1520;
+  --bg3:#0f1f2e;
+  --panel:#091522;
+  --panel2:#0c1d2d;
+  --border:#0e3a5c;
+  --border2:#1a5a8a;
+  --cyan:#00d4ff;
+  --cyan2:#00a8cc;
+  --magenta:#ff0099;
+  --magenta2:#cc0077;
+  --yellow:#ffe600;
+  --green:#00ff88;
+  --red:#ff3355;
+  --orange:#ff8800;
+  --text:#c8e8ff;
+  --text2:#6a9cc0;
+  --text3:#3a6080;
+  --glow-cyan:0 0 8px #00d4ff88,0 0 20px #00d4ff44;
+  --glow-mag:0 0 8px #ff009988,0 0 20px #ff009944;
+  --glow-green:0 0 8px #00ff8888,0 0 20px #00ff8844;
+  --font-mono:'Share Tech Mono',monospace;
+  --font-ui:'Rajdhani',sans-serif;
+  --font-title:'Orbitron',sans-serif;
+  --transition:0.18s cubic-bezier(.4,0,.2,1);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);font-family:var(--font-ui);}
+
+/* ===== SCANLINE OVERLAY ===== */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.15) 2px,rgba(0,0,0,.15) 4px);
+  animation:scanlines 8s linear infinite;
+  opacity:.4;
+}
+@keyframes scanlines{0%{background-position:0 0}100%{background-position:0 200px}}
+
+/* Grid noise bg */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    linear-gradient(rgba(0,212,255,.03) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,212,255,.03) 1px,transparent 1px);
+  background-size:40px 40px;
+  opacity:1;
+}
+
+/* ===== LAYOUT ===== */
+#root{position:relative;z-index:1;display:flex;flex-direction:column;height:100vh;}
+
+/* ===== TITLEBAR ===== */
+#titlebar{
+  display:flex;align-items:center;gap:12px;
+  padding:0 16px;height:48px;flex-shrink:0;
+  background:linear-gradient(90deg,#030b14,#061220,#030b14);
+  border-bottom:1px solid var(--border);
+  position:relative;overflow:hidden;
+}
+#titlebar::after{
+  content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),var(--magenta),var(--cyan),transparent);
+  animation:hline 4s linear infinite;
+}
+@keyframes hline{0%{opacity:.4}50%{opacity:1}100%{opacity:.4}}
+
+.logo{
+  font-family:var(--font-title);font-size:22px;font-weight:900;letter-spacing:4px;
+  color:var(--cyan);text-shadow:var(--glow-cyan);
+  user-select:none;
+}
+.logo span{color:var(--magenta);text-shadow:var(--glow-mag);}
+.logo-sub{font-family:var(--font-mono);font-size:9px;color:var(--text3);letter-spacing:2px;margin-top:-4px;}
+
+.titlebar-sep{flex:1;}
+
+.tb-btn{
+  background:transparent;border:1px solid var(--border);color:var(--text2);
+  padding:5px 14px;font-family:var(--font-ui);font-size:12px;font-weight:600;
+  letter-spacing:1px;cursor:pointer;transition:var(--transition);
+  text-transform:uppercase;position:relative;overflow:hidden;
+}
+.tb-btn::before{
+  content:'';position:absolute;inset:0;background:var(--cyan);opacity:0;
+  transition:opacity .18s;
+}
+.tb-btn:hover{border-color:var(--cyan);color:var(--cyan);box-shadow:var(--glow-cyan);}
+.tb-btn:hover::before{opacity:.08;}
+.tb-btn.active{border-color:var(--cyan);color:var(--cyan);background:rgba(0,212,255,.08);}
+
+/* ===== TAB BAR ===== */
+#tabbar{
+  display:flex;align-items:stretch;gap:2px;padding:6px 8px 0;
+  background:var(--bg1);border-bottom:1px solid var(--border);
+  flex-shrink:0;min-height:40px;overflow-x:auto;
+}
+#tabbar::-webkit-scrollbar{height:2px;}
+#tabbar::-webkit-scrollbar-track{background:var(--bg1);}
+#tabbar::-webkit-scrollbar-thumb{background:var(--border2);}
+
+.tab{
+  display:flex;align-items:center;gap:8px;
+  padding:0 14px;min-width:140px;max-width:200px;
+  background:var(--bg2);border:1px solid var(--border);border-bottom:none;
+  cursor:pointer;font-size:12px;font-weight:600;letter-spacing:.5px;
+  color:var(--text3);transition:var(--transition);user-select:none;
+  position:relative;flex-shrink:0;
+}
+.tab:hover{color:var(--text2);border-color:var(--border2);}
+.tab.active{
+  background:var(--panel);color:var(--cyan);border-color:var(--cyan);
+  box-shadow:inset 0 2px 0 var(--cyan);
+}
+.tab .tab-icon{font-size:10px;opacity:.7;}
+.tab .tab-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tab .tab-close{
+  font-size:14px;opacity:.4;transition:opacity .15s;
+  background:none;border:none;color:inherit;cursor:pointer;padding:0 2px;
+  line-height:1;
+}
+.tab .tab-close:hover{opacity:1;color:var(--red);}
+.tab .tab-status{width:6px;height:6px;border-radius:50%;background:var(--text3);flex-shrink:0;}
+.tab.connected .tab-status{background:var(--green);box-shadow:0 0 6px var(--green);}
+
+#tab-new{
+  display:flex;align-items:center;justify-content:center;
+  width:32px;min-width:32px;background:transparent;border:1px dashed var(--border);
+  cursor:pointer;color:var(--text3);font-size:18px;transition:var(--transition);
+  margin-left:4px;
+}
+#tab-new:hover{color:var(--cyan);border-color:var(--cyan);box-shadow:var(--glow-cyan);}
+
+/* ===== MAIN CONTENT ===== */
+#main{flex:1;display:flex;overflow:hidden;position:relative;}
+
+/* ===== SIDEBAR ===== */
+#sidebar{
+  width:260px;flex-shrink:0;display:flex;flex-direction:column;
+  background:var(--panel);border-right:1px solid var(--border);
+  transition:width var(--transition);overflow:hidden;
+}
+#sidebar.collapsed{width:0;}
+
+.sidebar-section{
+  border-bottom:1px solid var(--border);overflow:hidden;
+}
+.sidebar-section-header{
+  display:flex;align-items:center;gap:8px;padding:10px 14px;
+  font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  color:var(--text3);cursor:pointer;user-select:none;transition:color var(--transition);
+}
+.sidebar-section-header:hover{color:var(--cyan);}
+.sidebar-section-header .sh-icon{font-size:12px;}
+.sidebar-section-header .sh-arrow{margin-left:auto;transition:transform var(--transition);}
+.sidebar-section-header.open .sh-arrow{transform:rotate(90deg);}
+
+.sidebar-items{max-height:0;overflow:hidden;transition:max-height .3s ease;}
+.sidebar-items.open{max-height:600px;}
+
+.session-item{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 14px 8px 22px;cursor:pointer;
+  font-size:12px;font-weight:500;color:var(--text2);
+  transition:var(--transition);border-left:2px solid transparent;
+  position:relative;
+}
+.session-item:hover{
+  background:rgba(0,212,255,.05);color:var(--cyan);
+  border-left-color:var(--cyan);
+}
+.session-item .si-icon{font-size:10px;color:var(--text3);}
+.session-item .si-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.session-item .si-actions{display:none;gap:4px;}
+.session-item:hover .si-actions{display:flex;}
+.si-action-btn{
+  background:none;border:none;cursor:pointer;padding:2px 4px;
+  font-size:10px;color:var(--text3);transition:color var(--transition);
+}
+.si-action-btn:hover{color:var(--cyan);}
+.si-action-btn.del:hover{color:var(--red);}
+
+/* search box */
+.sidebar-search{padding:8px 10px;}
+.sidebar-search input{
+  width:100%;background:var(--bg2);border:1px solid var(--border);
+  color:var(--text);padding:5px 10px;font-family:var(--font-mono);font-size:11px;
+  outline:none;transition:border-color var(--transition);
+}
+.sidebar-search input:focus{border-color:var(--cyan);}
+.sidebar-search input::placeholder{color:var(--text3);}
+
+/* ===== TERMINAL PANE ===== */
+#terminal-container{
+  flex:1;display:flex;flex-direction:column;overflow:hidden;
+  background:var(--bg0);
+}
+
+/* pane views */
+.pane-view{display:none;flex:1;flex-direction:column;overflow:hidden;}
+.pane-view.active{display:flex;}
+
+/* Welcome */
+#welcome{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:20px;padding:40px;
+}
+.welcome-logo{
+  font-family:var(--font-title);font-size:64px;font-weight:900;
+  color:transparent;
+  background:linear-gradient(135deg,var(--cyan),var(--magenta));
+  -webkit-background-clip:text;background-clip:text;
+  text-shadow:none;letter-spacing:8px;
+  animation:logoGlow 3s ease-in-out infinite;
+}
+@keyframes logoGlow{
+  0%,100%{filter:drop-shadow(0 0 20px rgba(0,212,255,.5));}
+  50%{filter:drop-shadow(0 0 40px rgba(255,0,153,.5));}
+}
+.welcome-sub{font-family:var(--font-mono);color:var(--text3);font-size:13px;letter-spacing:3px;}
+.welcome-hint{font-size:12px;color:var(--text3);font-family:var(--font-mono);}
+.welcome-hint span{color:var(--cyan);}
+
+/* Terminal area */
+.terminal-wrap{
+  flex:1;overflow:hidden;padding:4px;background:var(--bg0);
+  position:relative;
+}
+#xterm-container{width:100%;height:100%;}
+.terminal-toolbar{
+  display:flex;align-items:center;gap:8px;
+  padding:4px 10px;background:var(--bg2);border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.terminal-toolbar .tt-label{
+  font-family:var(--font-mono);font-size:10px;color:var(--text3);
+  letter-spacing:1px;
+}
+.terminal-toolbar .tt-badge{
+  padding:2px 8px;background:rgba(0,212,255,.1);
+  border:1px solid var(--border2);font-family:var(--font-mono);
+  font-size:10px;color:var(--cyan);letter-spacing:1px;
+}
+.terminal-toolbar .tt-sep{flex:1;}
+.tt-action{
+  background:none;border:1px solid var(--border);color:var(--text3);
+  padding:3px 10px;font-size:10px;font-family:var(--font-ui);
+  font-weight:600;letter-spacing:1px;cursor:pointer;
+  text-transform:uppercase;transition:var(--transition);
+}
+.tt-action:hover{border-color:var(--cyan);color:var(--cyan);}
+
+/* ===== PANELS (modal overlays) ===== */
+.panel-overlay{
+  display:none;position:fixed;inset:0;z-index:100;
+  background:rgba(2,6,9,.85);backdrop-filter:blur(4px);
+  align-items:center;justify-content:center;
+}
+.panel-overlay.show{display:flex;}
+
+.panel-box{
+  background:var(--panel2);border:1px solid var(--border2);
+  width:600px;max-width:95vw;max-height:90vh;overflow-y:auto;
+  position:relative;
+  box-shadow:0 0 60px rgba(0,0,0,.8),0 0 0 1px rgba(0,212,255,.1),var(--glow-cyan);
+  animation:panelIn .2s ease-out;
+}
+@keyframes panelIn{from{opacity:0;transform:scale(.96) translateY(-10px)}to{opacity:1;transform:none}}
+
+.panel-box.wide{width:840px;}
+.panel-box.narrow{width:420px;}
+
+.panel-header{
+  display:flex;align-items:center;gap:12px;
+  padding:14px 20px;border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg,var(--bg1),var(--panel2));
+}
+.panel-title{
+  font-family:var(--font-title);font-size:14px;font-weight:700;
+  color:var(--cyan);letter-spacing:2px;text-transform:uppercase;
+  text-shadow:var(--glow-cyan);
+}
+.panel-close{
+  margin-left:auto;background:none;border:none;color:var(--text3);
+  font-size:18px;cursor:pointer;transition:color var(--transition);
+  line-height:1;
+}
+.panel-close:hover{color:var(--red);}
+
+.panel-body{padding:20px;}
+
+/* ===== FORM STYLES ===== */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.form-grid.cols1{grid-template-columns:1fr;}
+.form-grid.cols3{grid-template-columns:1fr 1fr 1fr;}
+.form-full{grid-column:1/-1;}
+
+.field{display:flex;flex-direction:column;gap:5px;}
+.field label{
+  font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  color:var(--text3);font-family:var(--font-ui);
+}
+.field input,.field select,.field textarea{
+  background:var(--bg2);border:1px solid var(--border);color:var(--text);
+  padding:8px 12px;font-family:var(--font-mono);font-size:12px;
+  outline:none;transition:border-color var(--transition),box-shadow var(--transition);
+  width:100%;
+}
+.field input:focus,.field select:focus,.field textarea:focus{
+  border-color:var(--cyan);box-shadow:0 0 0 2px rgba(0,212,255,.15);
+}
+.field select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236a9cc0'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;}
+.field input[type=password]{letter-spacing:2px;}
+
+.toggle-row{display:flex;align-items:center;gap:12px;padding:8px 0;}
+.toggle-label{font-size:12px;font-weight:600;color:var(--text2);}
+.toggle{
+  position:relative;width:36px;height:18px;flex-shrink:0;
+}
+.toggle input{opacity:0;width:0;height:0;position:absolute;}
+.toggle-slider{
+  position:absolute;inset:0;background:var(--bg3);border:1px solid var(--border);
+  cursor:pointer;transition:var(--transition);
+}
+.toggle-slider::before{
+  content:'';position:absolute;width:12px;height:12px;
+  top:2px;left:2px;background:var(--text3);transition:var(--transition);
+}
+.toggle input:checked + .toggle-slider{background:rgba(0,212,255,.2);border-color:var(--cyan);}
+.toggle input:checked + .toggle-slider::before{background:var(--cyan);transform:translateX(18px);box-shadow:0 0 6px var(--cyan);}
+
+.form-section-title{
+  font-family:var(--font-title);font-size:10px;font-weight:700;
+  letter-spacing:3px;text-transform:uppercase;color:var(--cyan);
+  padding:12px 0 8px;border-bottom:1px solid var(--border);
+  margin-bottom:12px;
+}
+
+.btn{
+  background:transparent;border:1px solid;
+  padding:9px 22px;font-family:var(--font-ui);font-size:12px;
+  font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  cursor:pointer;transition:var(--transition);position:relative;overflow:hidden;
+}
+.btn::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity .18s;}
+.btn:hover::before{opacity:.12;}
+.btn-cyan{border-color:var(--cyan);color:var(--cyan);}
+.btn-cyan::before{background:var(--cyan);}
+.btn-cyan:hover{box-shadow:var(--glow-cyan);}
+.btn-magenta{border-color:var(--magenta);color:var(--magenta);}
+.btn-magenta::before{background:var(--magenta);}
+.btn-magenta:hover{box-shadow:var(--glow-mag);}
+.btn-green{border-color:var(--green);color:var(--green);}
+.btn-green::before{background:var(--green);}
+.btn-green:hover{box-shadow:var(--glow-green);}
+.btn-red{border-color:var(--red);color:var(--red);}
+.btn-red::before{background:var(--red);}
+.btn-red:hover{box-shadow:0 0 12px rgba(255,51,85,.5);}
+.btn-sm{padding:5px 14px;font-size:11px;}
+.btn-block{width:100%;}
+.btn:disabled{opacity:.35;cursor:not-allowed;}
+
+.btn-row{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;}
+
+/* ===== BASTION PICKER ===== */
+#bastion-servers-list{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+  gap:12px;padding:16px 0;
+  max-height:380px;overflow-y:auto;
+}
+.server-card{
+  background:var(--bg2);border:1px solid var(--border);
+  padding:16px;cursor:pointer;transition:var(--transition);
+  position:relative;overflow:hidden;
+}
+.server-card::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,rgba(0,212,255,.0),rgba(0,212,255,.08));
+  opacity:0;transition:opacity .2s;
+}
+.server-card:hover{border-color:var(--cyan);box-shadow:var(--glow-cyan);}
+.server-card:hover::before{opacity:1;}
+.sc-icon{font-size:28px;margin-bottom:8px;color:var(--cyan);}
+.sc-name{font-family:var(--font-ui);font-weight:700;font-size:13px;color:var(--text);}
+.sc-host{font-family:var(--font-mono);font-size:10px;color:var(--text3);margin-top:2px;}
+.sc-badge{
+  display:inline-block;padding:2px 6px;
+  background:rgba(0,212,255,.1);border:1px solid var(--border2);
+  font-size:9px;font-family:var(--font-mono);color:var(--cyan2);
+  margin-top:6px;letter-spacing:1px;
+}
+
+/* ===== SFTP PANEL ===== */
+.sftp-toolbar{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border);
+}
+.sftp-path{
+  flex:1;font-family:var(--font-mono);font-size:11px;color:var(--cyan);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.sftp-list{overflow-y:auto;flex:1;}
+.sftp-item{
+  display:flex;align-items:center;gap:10px;
+  padding:6px 12px;font-family:var(--font-mono);font-size:11px;
+  cursor:pointer;border-bottom:1px solid rgba(14,58,92,.3);
+  transition:background var(--transition);color:var(--text2);
+}
+.sftp-item:hover{background:rgba(0,212,255,.05);}
+.sftp-item .sfi-icon{width:14px;text-align:center;flex-shrink:0;}
+.sftp-item .sfi-name{flex:1;}
+.sftp-item .sfi-size{color:var(--text3);font-size:10px;}
+.sftp-item .sfi-actions{display:none;gap:4px;}
+.sftp-item:hover .sfi-actions{display:flex;}
+.sfi-btn{
+  background:none;border:1px solid var(--border);color:var(--text3);
+  padding:2px 6px;font-size:9px;cursor:pointer;transition:var(--transition);
+}
+.sfi-btn:hover{border-color:var(--cyan);color:var(--cyan);}
+.sfi-btn.del:hover{border-color:var(--red);color:var(--red);}
+
+/* ===== PORT FORWARD LIST ===== */
+.pf-list{display:flex;flex-direction:column;gap:8px;margin:10px 0;}
+.pf-item{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 12px;background:var(--bg2);border:1px solid var(--border);
+  font-family:var(--font-mono);font-size:11px;color:var(--text2);
+}
+.pf-direction{
+  padding:2px 8px;font-size:9px;letter-spacing:1px;
+  border:1px solid;font-family:var(--font-ui);font-weight:700;
+}
+.pf-direction.local{border-color:var(--cyan);color:var(--cyan);}
+.pf-direction.remote{border-color:var(--magenta);color:var(--magenta);}
+.pf-rule{flex:1;}
+.pf-del{background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;}
+.pf-del:hover{color:var(--red);}
+
+/* ===== LOADING/CONNECTING ANIM ===== */
+.connecting-overlay{
+  display:none;position:absolute;inset:0;z-index:50;
+  background:rgba(2,6,9,.9);
+  flex-direction:column;align-items:center;justify-content:center;gap:20px;
+}
+.connecting-overlay.show{display:flex;}
+.connect-spinner{
+  width:60px;height:60px;position:relative;
+}
+.connect-spinner::before,.connect-spinner::after{
+  content:'';position:absolute;border-radius:50%;
+}
+.connect-spinner::before{
+  inset:0;border:2px solid transparent;
+  border-top-color:var(--cyan);border-bottom-color:var(--magenta);
+  animation:spin 1s linear infinite;
+}
+.connect-spinner::after{
+  inset:8px;border:2px solid transparent;
+  border-left-color:var(--cyan);border-right-color:var(--magenta);
+  animation:spin .7s linear infinite reverse;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.connect-status{
+  font-family:var(--font-mono);font-size:12px;color:var(--cyan);
+  letter-spacing:2px;text-align:center;
+}
+.connect-log{
+  font-family:var(--font-mono);font-size:10px;color:var(--text3);
+  max-width:400px;text-align:center;line-height:1.8;
+}
+
+/* ===== TOAST ===== */
+#toast-container{
+  position:fixed;bottom:20px;right:20px;z-index:999;
+  display:flex;flex-direction:column;gap:8px;pointer-events:none;
+}
+.toast{
+  padding:10px 18px;background:var(--panel2);border:1px solid var(--border);
+  font-family:var(--font-mono);font-size:11px;letter-spacing:1px;
+  animation:toastIn .2s ease-out;
+  min-width:200px;max-width:360px;
+}
+.toast.ok{border-left:3px solid var(--green);color:var(--green);}
+.toast.err{border-left:3px solid var(--red);color:var(--red);}
+.toast.info{border-left:3px solid var(--cyan);color:var(--cyan);}
+@keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+
+/* ===== SCROLLBARS ===== */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:var(--bg1);}
+::-webkit-scrollbar-thumb{background:var(--border2);}
+::-webkit-scrollbar-thumb:hover{background:var(--cyan2);}
+
+/* ===== MISC ===== */
+.sep{height:1px;background:var(--border);margin:12px 0;}
+.text-cyan{color:var(--cyan);}
+.text-mag{color:var(--magenta);}
+.text-green{color:var(--green);}
+.text-red{color:var(--red);}
+.text-muted{color:var(--text3);}
+.monospace{font-family:var(--font-mono);}
+.badge{
+  display:inline-flex;align-items:center;
+  padding:2px 8px;font-size:9px;font-family:var(--font-mono);
+  letter-spacing:1px;border:1px solid;
+}
+.badge-cyan{border-color:var(--border2);color:var(--cyan);background:rgba(0,212,255,.08);}
+.badge-mag{border-color:var(--magenta2);color:var(--magenta);background:rgba(255,0,153,.08);}
+
+/* corner decorations */
+.corner-tl,.corner-tr,.corner-bl,.corner-br{
+  position:absolute;width:12px;height:12px;pointer-events:none;
+}
+.corner-tl{top:0;left:0;border-top:2px solid var(--cyan);border-left:2px solid var(--cyan);}
+.corner-tr{top:0;right:0;border-top:2px solid var(--cyan);border-right:2px solid var(--cyan);}
+.corner-bl{bottom:0;left:0;border-bottom:2px solid var(--cyan);border-left:2px solid var(--cyan);}
+.corner-br{bottom:0;right:0;border-bottom:2px solid var(--cyan);border-right:2px solid var(--cyan);}
+
+.flicker{animation:flicker 6s infinite;}
+@keyframes flicker{0%,94%,100%{opacity:1}95%{opacity:.8}97%{opacity:.9}98%{opacity:.7}}
+</style>
+</head>
+<body>
+<div id="root">
+
+  <!-- TITLEBAR -->
+  <div id="titlebar">
+    <div>
+      <div class="logo flicker">PON<span>SSH</span></div>
+      <div class="logo-sub">CYBER TERMINAL v1.0</div>
+    </div>
+    <div class="titlebar-sep"></div>
+    <button class="tb-btn" onclick="openNewSession()">⊕ NEW SESSION</button>
+    <button class="tb-btn" onclick="openSFTP()">⇅ SFTP</button>
+    <button class="tb-btn" onclick="openPortForwards()">⇌ TUNNELS</button>
+    <button class="tb-btn" onclick="openSettings()">⚙ SETTINGS</button>
+  </div>
+
+  <!-- TAB BAR -->
+  <div id="tabbar">
+    <div id="tab-new" onclick="openNewSession()" title="New tab">＋</div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+    <!-- SIDEBAR -->
+    <div id="sidebar">
+      <div class="sidebar-search">
+        <input type="text" id="session-search" placeholder="// search sessions..." oninput="filterSessions(this.value)"/>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-header open" onclick="toggleSection(this)">
+          <span class="sh-icon">◈</span>
+          <span>SAVED SESSIONS</span>
+          <span class="sh-arrow">▶</span>
+        </div>
+        <div class="sidebar-items open" id="saved-sessions-list"></div>
+      </div>
+    </div>
+
+    <!-- TERMINAL CONTAINER -->
+    <div id="terminal-container">
+      <!-- Welcome pane -->
+      <div id="welcome" class="pane-view active">
+        <div class="welcome-logo">PonSSH</div>
+        <div class="welcome-sub">// SECURE SHELL INTERFACE //</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:20px;">
+          <button class="btn btn-cyan" onclick="openNewSession()">⊕ NEW SESSION</button>
+          <button class="btn btn-magenta" onclick="openNewSession(true)">⇒ CONNECT VIA BASTION</button>
+        </div>
+        <div class="welcome-hint" style="margin-top:30px;">
+          Press <span>Ctrl+T</span> for new tab &nbsp;·&nbsp;
+          <span>Ctrl+W</span> to close tab &nbsp;·&nbsp;
+          <span>Ctrl+Shift+F</span> for SFTP
+        </div>
+      </div>
+
+      <!-- Terminal pane (cloned per tab) -->
+      <template id="terminal-pane-template">
+        <div class="pane-view terminal-pane">
+          <div class="terminal-toolbar">
+            <span class="tt-label">HOST</span>
+            <span class="tt-badge pane-host-label">—</span>
+            <span class="tt-label" style="margin-left:10px">USER</span>
+            <span class="tt-badge pane-user-label">—</span>
+            <span class="tt-sep"></span>
+            <button class="tt-action" onclick="clearTerminal(this)">CLR</button>
+            <button class="tt-action" onclick="reconnectTab(this)">↺ RECONNECT</button>
+            <button class="tt-action" style="color:var(--red);border-color:var(--red);" onclick="closeTab(this)">✕ CLOSE</button>
+          </div>
+          <div class="terminal-wrap">
+            <div class="xterm-wrap" style="width:100%;height:100%;"></div>
+            <div class="connecting-overlay">
+              <div class="connect-spinner"></div>
+              <div class="connect-status">ESTABLISHING SECURE CHANNEL</div>
+              <div class="connect-log">Initializing SSH handshake...</div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== PANELS ==================== -->
+
+<!-- NEW SESSION PANEL -->
+<div id="panel-new-session" class="panel-overlay">
+  <div class="panel-box wide" style="position:relative;">
+    <div class="corner-tl"></div><div class="corner-tr"></div>
+    <div class="corner-bl"></div><div class="corner-br"></div>
+    <div class="panel-header">
+      <span class="panel-title">⊕ NEW SESSION</span>
+      <button class="panel-close" onclick="closePanel('panel-new-session')">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-section-title">TARGET HOST</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Session Name</label>
+          <input type="text" id="ns-name" placeholder="my-server"/>
+        </div>
+        <div class="field">
+          <label>Host / IP</label>
+          <input type="text" id="ns-host" placeholder="192.168.1.1"/>
+        </div>
+        <div class="field">
+          <label>Port</label>
+          <input type="number" id="ns-port" value="22" min="1" max="65535"/>
+        </div>
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="ns-user" placeholder="root"/>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="ns-pass" placeholder="••••••••"/>
+        </div>
+        <div class="field">
+          <label>SSH Key Path (optional)</label>
+          <input type="text" id="ns-key" placeholder="/home/user/.ssh/id_rsa"/>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+      <div class="form-section-title">BASTION / JUMP HOST (WALLIX-STYLE)</div>
+      <div class="toggle-row">
+        <label class="toggle"><input type="checkbox" id="ns-use-bastion" onchange="toggleBastionFields()"/><span class="toggle-slider"></span></label>
+        <span class="toggle-label">Use Bastion / Jump Host</span>
+      </div>
+      <div id="bastion-fields" style="display:none;">
+        <div class="form-grid" style="margin-top:10px;">
+          <div class="field">
+            <label>Bastion Host</label>
+            <input type="text" id="ns-b-host" placeholder="wallix.company.com"/>
+          </div>
+          <div class="field">
+            <label>Bastion Port</label>
+            <input type="number" id="ns-b-port" value="22"/>
+          </div>
+          <div class="field">
+            <label>Bastion Username</label>
+            <input type="text" id="ns-b-user" placeholder="your.name"/>
+          </div>
+          <div class="field">
+            <label>Bastion Password</label>
+            <input type="password" id="ns-b-pass" placeholder="••••••••"/>
+          </div>
+          <div class="field form-full">
+            <label>2FA / TOTP (leave blank to enter on connect)</label>
+            <input type="text" id="ns-b-totp" placeholder="123456 — or leave blank for prompt"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+      <div class="form-section-title">ADVANCED</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Keepalive interval (sec)</label>
+          <input type="number" id="ns-keepalive" value="30" min="0"/>
+        </div>
+        <div class="field">
+          <label>Terminal cols</label>
+          <input type="number" id="ns-cols" value="220"/>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-cyan" onclick="saveAndConnect()">⇒ CONNECT</button>
+        <button class="btn btn-green" onclick="saveSessionOnly()">✦ SAVE ONLY</button>
+        <button class="btn" style="border-color:var(--text3);color:var(--text3);" onclick="closePanel('panel-new-session')">CANCEL</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOTP PROMPT PANEL -->
+<div id="panel-totp" class="panel-overlay">
+  <div class="panel-box narrow" style="position:relative;">
+    <div class="corner-tl"></div><div class="corner-tr"></div>
+    <div class="corner-bl"></div><div class="corner-br"></div>
+    <div class="panel-header">
+      <span class="panel-title">⬡ 2FA VERIFICATION</span>
+      <button class="panel-close" onclick="closePanel('panel-totp')">✕</button>
+    </div>
+    <div class="panel-body">
+      <p style="font-size:12px;color:var(--text2);margin-bottom:16px;font-family:var(--font-mono);">
+        Enter the OTP / 2FA code for the bastion host:
+      </p>
+      <div class="field">
+        <label>OTP CODE</label>
+        <input type="text" id="totp-input" placeholder="000000" maxlength="10"
+               style="font-size:24px;letter-spacing:8px;text-align:center;"
+               onkeydown="if(event.key==='Enter')confirmTotp()"/>
+      </div>
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn btn-cyan btn-block" onclick="confirmTotp()">VERIFY ⇒</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BASTION SERVER PICKER -->
+<div id="panel-bastion-pick" class="panel-overlay">
+  <div class="panel-box wide" style="position:relative;">
+    <div class="corner-tl"></div><div class="corner-tr"></div>
+    <div class="corner-bl"></div><div class="corner-br"></div>
+    <div class="panel-header">
+      <span class="panel-title">⬡ SELECT TARGET SERVER</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--text3);margin-left:12px;" id="bastion-pick-label"></span>
+      <button class="panel-close" onclick="closePanel('panel-bastion-pick')">✕</button>
+    </div>
+    <div class="panel-body" style="padding:10px 20px;">
+      <p style="font-size:11px;font-family:var(--font-mono);color:var(--text3);margin-bottom:8px;">
+        // Connected to bastion. Select destination server:
+      </p>
+      <div id="bastion-servers-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- SFTP PANEL -->
+<div id="panel-sftp" class="panel-overlay">
+  <div class="panel-box wide" style="max-height:80vh;position:relative;">
+    <div class="corner-tl"></div><div class="corner-tr"></div>
+    <div class="corner-bl"></div><div class="corner-br"></div>
+    <div class="panel-header">
+      <span class="panel-title">⇅ SFTP BROWSER</span>
+      <button class="panel-close" onclick="closePanel('panel-sftp')">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;height:calc(80vh - 60px);">
+      <div class="sftp-toolbar">
+        <button class="btn btn-sm btn-cyan" onclick="sftpNavUp()">↑ UP</button>
+        <span class="sftp-path" id="sftp-current-path">/</span>
+        <button class="btn btn-sm btn-green" onclick="sftpUploadFile()">⬆ UPLOAD</button>
+        <button class="btn btn-sm" style="border-color:var(--text3);color:var(--text3);" onclick="sftpMkdir()">+ DIR</button>
+        <button class="btn btn-sm" style="border-color:var(--text3);color:var(--text3);" onclick="sftpRefresh()">↺</button>
+      </div>
+      <div class="sftp-list" id="sftp-file-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PORT FORWARDING PANEL -->
+<div id="panel-portfwd" class="panel-overlay">
+  <div class="panel-box" style="position:relative;">
+    <div class="corner-tl"></div><div class="corner-tr"></div>
+    <div class="corner-bl"></div><div class="corner-br"></div>
+    <div class="panel-header">
+      <span class="panel-title">⇌ PORT TUNNELS</span>
+      <button class="panel-close" onclick="closePanel('panel-portfwd')">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="pf-list" id="pf-active-list"></div>
+      <div class="form-section-title" style="margin-top:8px;">ADD TUNNEL</div>
+      <div class="form-grid cols3" style="margin-bottom:10px;">
+        <div class="field">
+          <label>Direction</label>
+          <select id="pf-dir">
+            <option value="local">LOCAL (L)</option>
+            <option value="remote">REMOTE (R)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Local Port</label>
+          <input type="number" id="pf-lport" placeholder="8080"/>
+        </div>
+        <div class="field">
+          <label>Remote Host</label>
+          <input type="text" id="pf-rhost" placeholder="127.0.0.1"/>
+        </div>
+        <div class="field">
+          <label>Remote Port</label>
+          <input type="number" id="pf-rport" placeholder="8080"/>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-cyan" onclick="addPortForward()">⇌ ADD TUNNEL</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS PANEL -->
+<div id="panel-settings" class="panel-overlay">
+  <div class="panel-box" style="position:relative;">
+    <div class="corner-tl"></div><div class="corner-tr"></div>
+    <div class="corner-bl"></div><div class="corner-br"></div>
+    <div class="panel-header">
+      <span class="panel-title">⚙ SETTINGS</span>
+      <button class="panel-close" onclick="closePanel('panel-settings')">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-grid cols1">
+        <div class="field">
+          <label>Keepalive Interval (sec, 0=off)</label>
+          <input type="number" id="cfg-keepalive" min="0"/>
+        </div>
+        <div class="field">
+          <label>Font Size</label>
+          <input type="number" id="cfg-fontsize" min="8" max="32"/>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-cyan" onclick="saveSettings()">✦ SAVE</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<!-- ==================== SCRIPTS ==================== -->
+<script>
+/* ====================================================
+   PonSSH — Frontend Logic
+   ==================================================== */
+
+const api = window.pywebview ? window.pywebview.api : null;
+
+// ── State ────────────────────────────────────────────
+let tabs = []; // [{id, name, profile, term, fitAddon, pollInterval}]
+let activeTabId = null;
+let sftpPath = "/";
+let activePfTabId = null;
+let pfList = [];
+let _pendingConnect = null; // {profile, tabId} waiting for TOTP
+
+// ── Helpers ──────────────────────────────────────────
+function uid(){ return '_' + Math.random().toString(36).slice(2,9); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function toast(msg, type='info'){
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateX(20px)'; el.style.transition='all .3s'; setTimeout(()=>el.remove(),300); }, 3000);
+}
+
+function openPanel(id){ document.getElementById(id).classList.add('show'); }
+function closePanel(id){ document.getElementById(id).classList.remove('show'); }
+
+function toggleSection(header){
+  header.classList.toggle('open');
+  header.nextElementSibling.classList.toggle('open');
+}
+
+// ── Init ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async ()=>{
+  await loadSessions();
+  await loadConfig();
+  setupKeyboardShortcuts();
+});
+
+// ── Config ───────────────────────────────────────────
+let config = {};
+async function loadConfig(){
+  if(!api){ config = {keepalive_interval:30,font_size:14}; return; }
+  config = await api.get_config();
+  document.getElementById('cfg-keepalive').value = config.keepalive_interval || 30;
+  document.getElementById('cfg-fontsize').value = config.font_size || 14;
+}
+
+async function saveSettings(){
+  config.keepalive_interval = parseInt(document.getElementById('cfg-keepalive').value)||30;
+  config.font_size = parseInt(document.getElementById('cfg-fontsize').value)||14;
+  if(api) await api.save_config(config);
+  closePanel('panel-settings');
+  toast('Settings saved','ok');
+}
+
+// ── Sessions sidebar ─────────────────────────────────
+let allSessions = [];
+async function loadSessions(){
+  if(!api){ allSessions=[]; renderSessions([]); return; }
+  allSessions = await api.get_sessions();
+  renderSessions(allSessions);
+}
+
+function renderSessions(list){
+  const el = document.getElementById('saved-sessions-list');
+  el.innerHTML = '';
+  if(!list.length){
+    el.innerHTML = '<div style="padding:12px 22px;font-size:11px;color:var(--text3);font-family:var(--font-mono);">// no sessions saved</div>';
+    return;
+  }
+  list.forEach(s=>{
+    const div = document.createElement('div');
+    div.className = 'session-item';
+    div.innerHTML = `
+      <span class="si-icon">◈</span>
+      <span class="si-name" title="${esc(s.host||'')}:${esc(s.port||22)}">${esc(s.name||s.host)}</span>
+      <span class="si-actions">
+        <button class="si-action-btn" title="Connect" onclick="quickConnect(${JSON.stringify(JSON.stringify(s))})">⇒</button>
+        <button class="si-action-btn del" title="Delete" onclick="deleteSession('${esc(s.name)}',event)">✕</button>
+      </span>`;
+    el.appendChild(div);
+  });
+}
+
+function filterSessions(q){
+  q = q.toLowerCase();
+  renderSessions(allSessions.filter(s=>(s.name||s.host||'').toLowerCase().includes(q)));
+}
+
+async function deleteSession(name, ev){
+  ev.stopPropagation();
+  if(!api) return;
+  const res = await api.delete_session(name);
+  if(res.ok){ allSessions = res.sessions; renderSessions(allSessions); toast('Deleted','ok'); }
+  else toast('Error: '+res.error,'err');
+}
+
+function quickConnect(profileJson){
+  const p = JSON.parse(profileJson);
+  loadProfileIntoForm(p);
+  openPanel('panel-new-session');
+}
+
+function loadProfileIntoForm(p){
+  document.getElementById('ns-name').value = p.name||'';
+  document.getElementById('ns-host').value = p.host||'';
+  document.getElementById('ns-port').value = p.port||22;
+  document.getElementById('ns-user').value = p.username||'';
+  document.getElementById('ns-pass').value = p.password||'';
+  document.getElementById('ns-key').value = p.key_path||'';
+  document.getElementById('ns-keepalive').value = p.keepalive_interval||30;
+  if(p.bastion){
+    document.getElementById('ns-use-bastion').checked = true;
+    document.getElementById('bastion-fields').style.display='';
+    document.getElementById('ns-b-host').value = p.bastion.host||'';
+    document.getElementById('ns-b-port').value = p.bastion.port||22;
+    document.getElementById('ns-b-user').value = p.bastion.username||'';
+    document.getElementById('ns-b-pass').value = p.bastion.password||'';
+  }
+}
+
+// ── New Session Panel ─────────────────────────────────
+function openNewSession(bastion=false){
+  // clear form
+  ['ns-name','ns-host','ns-user','ns-pass','ns-key','ns-b-host','ns-b-user','ns-b-pass','ns-b-totp'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('ns-port').value=22;
+  document.getElementById('ns-b-port').value=22;
+  document.getElementById('ns-keepalive').value=config.keepalive_interval||30;
+  document.getElementById('ns-use-bastion').checked=bastion;
+  document.getElementById('bastion-fields').style.display=bastion?'':'none';
+  openPanel('panel-new-session');
+}
+
+function toggleBastionFields(){
+  document.getElementById('bastion-fields').style.display =
+    document.getElementById('ns-use-bastion').checked ? '' : 'none';
+}
+
+function buildProfile(){
+  const useBastion = document.getElementById('ns-use-bastion').checked;
+  const p = {
+    name: document.getElementById('ns-name').value.trim() || document.getElementById('ns-host').value.trim(),
+    host: document.getElementById('ns-host').value.trim(),
+    port: parseInt(document.getElementById('ns-port').value)||22,
+    username: document.getElementById('ns-user').value.trim(),
+    password: document.getElementById('ns-pass').value,
+    key_path: document.getElementById('ns-key').value.trim()||null,
+    use_bastion:useBastion,
+    keepalive_interval: parseInt(document.getElementById('ns-keepalive').value)||30,
+    cols: parseInt(document.getElementById('ns-cols').value)||220,
+    rows: 50,
+    port_forwards: [],
+  };
+  if(useBastion){
+    p.bastion = {
+      host: document.getElementById('ns-b-host').value.trim(),
+      port: parseInt(document.getElementById('ns-b-port').value)||22,
+      username: document.getElementById('ns-b-user').value.trim(),
+      password: document.getElementById('ns-b-pass').value,
+    };
+  }
+  return p;
+}
+
+async function saveSessionOnly(){
+  const p = buildProfile();
+  if(!p.host){ toast('Host required','err'); return; }
+  if(api){
+    const r = await api.save_session(p);
+    if(r.ok){ allSessions=r.sessions; renderSessions(allSessions); toast('Session saved','ok'); }
+    else toast('Error: '+r.error,'err');
+  }
+  closePanel('panel-new-session');
+}
+
+async function saveAndConnect(){
+  const p = buildProfile();
+  if(!p.host){ toast('Host required','err'); return; }
+  if(api){ const r = await api.save_session(p); if(r.ok){ allSessions=r.sessions; renderSessions(allSessions); } }
+  closePanel('panel-new-session');
+
+  const totp = document.getElementById('ns-b-totp').value.trim();
+  if(p.use_bastion && !totp){
+    // prompt for 2FA
+    _pendingConnect = {profile:p};
+    document.getElementById('totp-input').value='';
+    openPanel('panel-totp');
+    setTimeout(()=>document.getElementById('totp-input').focus(),200);
+  } else {
+    doConnect(p, totp);
+  }
+}
+
+async function confirmTotp(){
+  const code = document.getElementById('totp-input').value.trim();
+  closePanel('panel-totp');
+  if(_pendingConnect){
+    doConnect(_pendingConnect.profile, code);
+    _pendingConnect = null;
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────
+function createTab(name){
+  const id = uid();
+  const tabEl = document.createElement('div');
+  tabEl.className = 'tab';
+  tabEl.dataset.tabId = id;
+  tabEl.innerHTML = `
+    <span class="tab-status"></span>
+    <span class="tab-icon">◈</span>
+    <span class="tab-name">${esc(name)}</span>
+    <button class="tab-close" onclick="closeTabById('${id}',event)">✕</button>`;
+  tabEl.onclick = (e)=>{ if(e.target.classList.contains('tab-close')) return; activateTab(id); };
+
+  const tabbar = document.getElementById('tabbar');
+  tabbar.insertBefore(tabEl, document.getElementById('tab-new'));
+
+  // clone terminal pane template
+  const tpl = document.getElementById('terminal-pane-template');
+  const pane = tpl.content.firstElementChild.cloneNode(true);
+  pane.dataset.tabId = id;
+  document.getElementById('terminal-container').appendChild(pane);
+
+  const tab = { id, name, profile:null, term:null, fitAddon:null, pollInterval:null, tabEl, pane };
+  tabs.push(tab);
+  return tab;
+}
+
+function activateTab(id){
+  // hide welcome
+  document.getElementById('welcome').classList.remove('active');
+  tabs.forEach(t=>{
+    t.tabEl.classList.toggle('active', t.id===id);
+    t.pane.classList.toggle('active', t.id===id);
+  });
+  activeTabId = id;
+  const t = tabs.find(t=>t.id===id);
+  if(t && t.fitAddon){ setTimeout(()=>t.fitAddon.fit(),50); }
+}
+
+function closeTabById(id, ev){
+  if(ev) ev.stopPropagation();
+  const idx = tabs.findIndex(t=>t.id===id);
+  if(idx<0) return;
+  const t = tabs[idx];
+  if(t.pollInterval) clearInterval(t.pollInterval);
+  if(t.term) t.term.dispose();
+  if(api) api.disconnect(id);
+  t.tabEl.remove();
+  t.pane.remove();
+  tabs.splice(idx,1);
+  if(activeTabId===id){
+    if(tabs.length) activateTab(tabs[Math.max(0,idx-1)].id);
+    else { activeTabId=null; document.getElementById('welcome').classList.add('active'); }
+  }
+}
+
+function closeTab(btn){
+  const pane = btn.closest('.terminal-pane');
+  if(pane) closeTabById(pane.dataset.tabId);
+}
+
+function reconnectTab(btn){
+  const pane = btn.closest('.terminal-pane');
+  if(!pane) return;
+  const t = tabs.find(t=>t.id===pane.dataset.tabId);
+  if(t && t.profile) doConnect(t.profile, '', t.id);
+}
+
+// ── Connect ───────────────────────────────────────────
+async function doConnect(profile, totp='', existingTabId=null){
+  const tabObj = existingTabId
+    ? tabs.find(t=>t.id===existingTabId)
+    : null;
+  const tab = tabObj || createTab(profile.name || profile.host);
+  if(!tabObj){ /* newly created */ }
+  tab.profile = profile;
+  activateTab(tab.id);
+
+  // show overlay
+  const overlay = tab.pane.querySelector('.connecting-overlay');
+  const logEl = tab.pane.querySelector('.connect-log');
+  overlay.classList.add('show');
+
+  // update labels
+  tab.pane.querySelector('.pane-host-label').textContent = `${profile.host}:${profile.port||22}`;
+  tab.pane.querySelector('.pane-user-label').textContent = profile.username;
+
+  const steps = [
+    'Resolving host...',
+    profile.use_bastion ? 'Authenticating bastion host...' : 'Initiating TCP handshake...',
+    profile.use_bastion ? 'Tunneling through bastion...' : 'Negotiating SSH protocol...',
+    'Exchanging keys...',
+    'Opening shell channel...',
+  ];
+  let si=0;
+  const stepInterval = setInterval(()=>{ if(logEl && si<steps.length){ logEl.textContent=steps[si++]; } },700);
+
+  try {
+    if(!api){ throw new Error("pywebview API not available (dev mode)"); }
+    const res = await api.connect(tab.id, profile, totp||'');
+    clearInterval(stepInterval);
+    if(!res.ok){ throw new Error(res.error||'Unknown error'); }
+
+    overlay.classList.remove('show');
+    tab.tabEl.classList.add('connected');
+    initTerminal(tab);
+    toast(`Connected to ${profile.host}`,'ok');
+  } catch(e) {
+    clearInterval(stepInterval);
+    overlay.classList.remove('show');
+    toast('Connection failed: '+e.message,'err');
+    if(logEl) logEl.textContent = '⚠ '+e.message;
+    tab.tabEl.classList.remove('connected');
+  }
+}
+
+// ── Terminal ──────────────────────────────────────────
+function initTerminal(tab){
+  const wrap = tab.pane.querySelector('.xterm-wrap');
+  if(tab.term){ tab.term.dispose(); }
+
+  const term = new Terminal({
+    fontFamily:"'Share Tech Mono', 'Courier New', monospace",
+    fontSize: config.font_size || 14,
+    theme:{
+      background:'#020609',
+      foreground:'#c8e8ff',
+      cursor:'#00d4ff',
+      cursorAccent:'#020609',
+      selection:'rgba(0,212,255,0.25)',
+      black:'#0a1520',
+      red:'#ff3355',
+      green:'#00ff88',
+      yellow:'#ffe600',
+      blue:'#00a8cc',
+      magenta:'#ff0099',
+      cyan:'#00d4ff',
+      white:'#c8e8ff',
+      brightBlack:'#3a6080',
+      brightRed:'#ff6677',
+      brightGreen:'#66ffaa',
+      brightYellow:'#ffee55',
+      brightBlue:'#33bbdd',
+      brightMagenta:'#ff55bb',
+      brightCyan:'#55eeff',
+      brightWhite:'#ffffff',
+    },
+    scrollback:5000,
+    cursorBlink:true,
+    cursorStyle:'block',
+    allowTransparency:true,
+  });
+
+  const fitAddon = new FitAddon.FitAddon();
+  const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+  term.loadAddon(fitAddon);
+  term.loadAddon(webLinksAddon);
+  term.open(wrap);
+  fitAddon.fit();
+  term.focus();
+
+  tab.term = term;
+  tab.fitAddon = fitAddon;
+
+  // send keystrokes to server
+  term.onData(data=>{
+    if(api) api.send_input(tab.id, data);
+  });
+
+  // resize
+  term.onResize(({cols,rows})=>{
+    if(api) api.resize_terminal(tab.id, cols, rows);
+  });
+
+  // poll output
+  if(tab.pollInterval) clearInterval(tab.pollInterval);
+  tab.pollInterval = setInterval(async()=>{
+    if(!api) return;
+    const r = await api.poll_output(tab.id);
+    if(r && r.ok && r.data) term.write(r.data);
+  }, 50);
+
+  // handle resize
+  const ro = new ResizeObserver(()=>{ if(tab.fitAddon) tab.fitAddon.fit(); });
+  ro.observe(wrap);
+}
+
+function clearTerminal(btn){
+  const pane = btn.closest('.terminal-pane');
+  const t = tabs.find(t=>t.id===pane.dataset.tabId);
+  if(t && t.term) t.term.clear();
+}
+
+// ── SFTP ──────────────────────────────────────────────
+function openSFTP(){
+  const t = tabs.find(t=>t.id===activeTabId);
+  if(!t || !t.profile){ toast('No active connected session','err'); return; }
+  sftpPath='/';
+  openPanel('panel-sftp');
+  sftpRefresh();
+}
+
+async function sftpRefresh(){
+  if(!api || !activeTabId) return;
+  document.getElementById('sftp-current-path').textContent = sftpPath;
+  const r = await api.sftp_list(activeTabId, sftpPath);
+  if(!r.ok){ toast('SFTP: '+r.error,'err'); return; }
+  renderSftpList(r.items);
+}
+
+function renderSftpList(items){
+  const el = document.getElementById('sftp-file-list');
+  el.innerHTML='';
+  items.forEach(item=>{
+    const div = document.createElement('div');
+    div.className='sftp-item';
+    const icon = item.is_dir ? '📁' : '📄';
+    const size = item.is_dir ? '' : formatBytes(item.size);
+    const fullPath = (sftpPath.endsWith('/')?sftpPath:sftpPath+'/')+item.name;
+    div.innerHTML=`
+      <span class="sfi-icon">${icon}</span>
+      <span class="sfi-name">${esc(item.name)}</span>
+      <span class="sfi-size">${esc(size)}</span>
+      <span class="sfi-actions">
+        ${!item.is_dir?`<button class="sfi-btn" onclick="sftpDownload('${esc(fullPath)}','${esc(item.name)}')">⬇</button>`:''}
+        <button class="sfi-btn del" onclick="sftpDelete('${esc(fullPath)}')">✕</button>
+      </span>`;
+    if(item.is_dir) div.onclick=()=>{ sftpPath=fullPath; sftpRefresh(); };
+    el.appendChild(div);
+  });
+}
+
+function sftpNavUp(){
+  if(sftpPath==='/') return;
+  sftpPath=sftpPath.replace(/\/[^/]+\/?$/,'')||'/';
+  sftpRefresh();
+}
+
+async function sftpDownload(remotePath, name){
+  // In a real app, open file dialog; here we download to ~/Downloads/
+  const localPath = (navigator.platform.includes('Win') ? 'C:\\Users\\' : '/tmp/') + name;
+  if(!api) return;
+  const r = await api.sftp_download(activeTabId, remotePath, localPath);
+  if(r.ok) toast('Downloaded to '+localPath,'ok');
+  else toast('Download error: '+r.error,'err');
+}
+
+async function sftpDelete(path){
+  if(!api) return;
+  const r = await api.sftp_remove(activeTabId, path);
+  if(r.ok){ toast('Deleted','ok'); sftpRefresh(); }
+  else toast('Error: '+r.error,'err');
+}
+
+async function sftpUploadFile(){
+  // Would use a native file dialog in production
+  const local = prompt('Local file path to upload:');
+  if(!local) return;
+  const name = local.split(/[\\/]/).pop();
+  const remote = (sftpPath.endsWith('/')?sftpPath:sftpPath+'/') + name;
+  if(!api) return;
+  const r = await api.sftp_upload(activeTabId, local, remote);
+  if(r.ok){ toast('Uploaded','ok'); sftpRefresh(); }
+  else toast('Error: '+r.error,'err');
+}
+
+async function sftpMkdir(){
+  const name = prompt('New directory name:');
+  if(!name) return;
+  const path = (sftpPath.endsWith('/')?sftpPath:sftpPath+'/') + name;
+  if(!api) return;
+  const r = await api.sftp_mkdir(activeTabId, path);
+  if(r.ok){ toast('Directory created','ok'); sftpRefresh(); }
+  else toast('Error: '+r.error,'err');
+}
+
+function formatBytes(b){
+  if(b==null) return '';
+  if(b<1024) return b+'B';
+  if(b<1048576) return (b/1024).toFixed(1)+'K';
+  if(b<1073741824) return (b/1048576).toFixed(1)+'M';
+  return (b/1073741824).toFixed(1)+'G';
+}
+
+// ── Port Forwards ─────────────────────────────────────
+function openPortForwards(){
+  const t = tabs.find(t=>t.id===activeTabId);
+  if(!t || !t.profile){ toast('No active connected session','err'); return; }
+  activePfTabId = activeTabId;
+  renderPfList();
+  openPanel('panel-portfwd');
+}
+
+function renderPfList(){
+  const el=document.getElementById('pf-active-list');
+  el.innerHTML='';
+  if(!pfList.length){
+    el.innerHTML='<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);padding:8px 0;">// no active tunnels</div>';
+    return;
+  }
+  pfList.forEach((pf,i)=>{
+    const div=document.createElement('div');
+    div.className='pf-item';
+    div.innerHTML=`
+      <span class="pf-direction ${pf.direction}">${pf.direction.toUpperCase()}</span>
+      <span class="pf-rule">127.0.0.1:${pf.local_port} ⇌ ${pf.remote_host}:${pf.remote_port}</span>
+      <button class="pf-del" onclick="removePf(${i})">✕</button>`;
+    el.appendChild(div);
+  });
+}
+
+async function addPortForward(){
+  const fwd={
+    direction: document.getElementById('pf-dir').value,
+    local_host:'127.0.0.1',
+    local_port: parseInt(document.getElementById('pf-lport').value)||8080,
+    remote_host: document.getElementById('pf-rhost').value.trim()||'127.0.0.1',
+    remote_port: parseInt(document.getElementById('pf-rport').value)||8080,
+  };
+  if(!api){ toast('API not available','err'); return; }
+  const r = await api.add_port_forward(activePfTabId, fwd);
+  if(r.ok){ pfList.push(fwd); renderPfList(); toast('Tunnel added','ok'); }
+  else toast('Error: '+r.error,'err');
+}
+
+function removePf(i){
+  pfList.splice(i,1);
+  renderPfList();
+  toast('Tunnel removed (disconnect to fully close)','info');
+}
+
+// ── Keyboard shortcuts ────────────────────────────────
+function setupKeyboardShortcuts(){
+  document.addEventListener('keydown', e=>{
+    if(e.ctrlKey && e.key==='t'){ e.preventDefault(); openNewSession(); }
+    if(e.ctrlKey && e.key==='w'){ e.preventDefault(); if(activeTabId) closeTabById(activeTabId); }
+    if(e.ctrlKey && e.shiftKey && e.key==='F'){ e.preventDefault(); openSFTP(); }
+    if(e.key==='Escape'){
+      document.querySelectorAll('.panel-overlay.show').forEach(p=>p.classList.remove('show'));
+    }
+  });
+}
+
+// ── Settings helpers ──────────────────────────────────
+function openSettings(){
+  document.getElementById('cfg-keepalive').value = config.keepalive_interval||30;
+  document.getElementById('cfg-fontsize').value = config.font_size||14;
+  openPanel('panel-settings');
+}
+</script>
+</body>
+</html>

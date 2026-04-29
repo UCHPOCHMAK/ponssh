@@ -1,0 +1,7 @@
+paramiko>=3.4.0
+pywebview>=5.0.3
+cryptography>=42.0.0
+sshtunnel>=0.4.0
+pyotp>=2.9.0
+requests>=2.31.0
+Pillow>=10.0.0
