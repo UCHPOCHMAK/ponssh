@@ -1,3 +1,4 @@
+
 """
 PonSSH — WebView API Bridge
 All methods here are callable from JavaScript via window.pywebview.api.*
@@ -21,9 +22,9 @@ class PonSSHApi:
     """Exposed to JS via pywebview."""
 
     def __init__(self):
-        self._sessions: dict[str, SSHSession] = {} # tab_id -> session
-        self._output_queues: dict[str, queue.Queue] = {}
-        self._read_threads: dict[str, threading.Thread] = {}
+        self._sessions: dict = {} # tab_id -> SSHSession
+        self._output_queues: dict = {} # tab_id -> queue.Queue
+        self._read_threads: dict = {} # tab_id -> Thread
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
@@ -65,9 +66,11 @@ class PonSSHApi:
         try:
             session = SSHSession(profile)
             session.connect(totp_code=totp_code)
+
             with self._lock:
                 self._sessions[tab_id] = session
                 self._output_queues[tab_id] = queue.Queue()
+
             # open shell & start reader
             chan = session.open_shell()
             t = threading.Thread(
@@ -76,8 +79,10 @@ class PonSSHApi:
                 daemon=True
             )
             t.start()
+
             with self._lock:
                 self._read_threads[tab_id] = t
+
             return {"ok": True}
         except Exception as e:
             logger.exception("connect error")
@@ -87,15 +92,25 @@ class PonSSHApi:
         with self._lock:
             session = self._sessions.pop(tab_id, None)
             self._output_queues.pop(tab_id, None)
+            self._read_threads.pop(tab_id, None)
         if session:
             session.disconnect()
         return {"ok": True}
 
     def disconnect_all(self):
+        """Called on window close — disconnect all active sessions."""
         with self._lock:
             ids = list(self._sessions.keys())
-        for tid in ids:
-            self.disconnect(tid)
+            sessions = dict(self._sessions)
+            self._sessions.clear()
+            self._output_queues.clear()
+            self._read_threads.clear()
+        # Disconnect outside the lock to avoid deadlock
+        for session in sessions.values():
+            try:
+                session.disconnect()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ #
     # Terminal I/O #
@@ -238,4 +253,3 @@ class PonSSHApi:
         if not session:
             return {"connected": False}
         return {"connected": session.is_connected}
-
