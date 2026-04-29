@@ -2,7 +2,6 @@
 PonSSH — Application Entry
 Creates the pywebview window pointed at the UI HTML.
 """
-
 import os
 import sys
 import logging
@@ -24,9 +23,14 @@ class PonSSHApp:
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "ui", "index.html"
         )
+        if not os.path.exists(self._ui_path):
+            logger.error(f"UI file not found: {self._ui_path}")
+            raise FileNotFoundError(f"UI not found: {self._ui_path}")
 
     def run(self):
         logger.info("Starting PonSSH...")
+        logger.info(f"UI path: {self._ui_path}")
+
         window = webview.create_window(
             title="PonSSH",
             url=f"file://{self._ui_path}",
