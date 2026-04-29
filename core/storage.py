@@ -2,11 +2,9 @@
 PonSSH — Session & Profile Storage
 Persists sessions, bastion configs, port forwards to JSON
 """
-
 import json
 import os
 from pathlib import Path
-from typing import Any
 
 CONFIG_DIR = Path.home() / ".ponssh"
 SESSIONS_FILE = CONFIG_DIR / "sessions.json"
@@ -17,7 +15,7 @@ def _ensure_dir():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_sessions() -> list[dict]:
+def load_sessions() -> list:
     _ensure_dir()
     if not SESSIONS_FILE.exists():
         return []
@@ -28,7 +26,7 @@ def load_sessions() -> list[dict]:
         return []
 
 
-def save_sessions(sessions: list[dict]):
+def save_sessions(sessions: list):
     _ensure_dir()
     with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(sessions, f, indent=2, ensure_ascii=False)
@@ -49,8 +47,8 @@ def load_config() -> dict:
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            defaults.update(data)
-            return defaults
+        defaults.update(data)
+        return defaults
     except Exception:
         return defaults
 
@@ -61,7 +59,7 @@ def save_config(cfg: dict):
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
 
-def add_session(session: dict) -> list[dict]:
+def add_session(session: dict) -> list:
     sessions = load_sessions()
     # Update if same name exists
     for i, s in enumerate(sessions):
@@ -74,7 +72,7 @@ def add_session(session: dict) -> list[dict]:
     return sessions
 
 
-def delete_session(name: str) -> list[dict]:
+def delete_session(name: str) -> list:
     sessions = load_sessions()
     sessions = [s for s in sessions if s.get("name") != name]
     save_sessions(sessions)
